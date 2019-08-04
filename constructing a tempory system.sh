@@ -339,6 +339,8 @@ cd bash-5.0
 make 
 make install 
 ln -sv bash /tools/bin/sh
+cd ..
+rm -Rf bash-5.0
 
 #bison
 tar -xvf bison-3.3.2.tar.xz 
