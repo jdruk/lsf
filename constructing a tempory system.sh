@@ -526,3 +526,406 @@ find /tools/{lib,libexec} -name \*.la -delete
 
 exit 
 chown -R root:root $LFS/tools
+
+cd $LFS
+tar -cvf lfs-8.4.tar.tar tools
+xz -zve9 lfs-8.4.tar
+
+
+# cap 6 important!
+mkdir -pv $LFS/{dev,proc,sys,run}
+# check commands mknod
+mknod -m 600 $LFS/dev/console c 5 1
+mknod -m 666 $LFS/dev/null c 1 3
+mount -v --bind /dev $LFS/dev
+
+mount -vt devpts devpts $LFS/dev/pts -o gid=5,mode=620
+mount -vt proc proc $LFS/proc
+mount -vt sysfs sysfs $LFS/sys
+mount -vt tmpfs tmpfs $LFS/run
+
+if [ -h $LFS/dev/shm ]; then
+  mkdir -pv $LFS/$(readlink $LFS/dev/shm)
+fi
+
+chroot "$LFS" /tools/bin/env -i \
+    HOME=/root                  \
+    TERM="$TERM"                \
+    PS1='(lfs chroot) \u:\w\$ ' \
+    PATH=/bin:/usr/bin:/sbin:/usr/sbin:/tools/bin \
+    /tools/bin/bash --login +h
+
+# It is important that all the commands throughout the remainder of this 
+# chapter and the following chapters are run from within the chroot environment. 
+# If you leave this environment for any reason (rebooting for example), ensure that the 
+# virtual kernel filesystems are mounted as explained in Section 6.2.2,
+# “Mounting and Populating /dev” and Section 6.2.3, “Mounting Virtual Kernel File Systems” 
+# and enter chroot again before continuing with the installation. 
+mkdir -pv /{bin,boot,etc/{opt,sysconfig},home,lib/firmware,mnt,opt}
+mkdir -pv /{media/{floppy,cdrom},sbin,srv,var}
+install -dv -m 0750 /root
+install -dv -m 1777 /tmp /var/tmp
+mkdir -pv /usr/{,local/}{bin,include,lib,sbin,src}
+mkdir -pv /usr/{,local/}share/{color,dict,doc,info,locale,man}
+mkdir -v  /usr/{,local/}share/{misc,terminfo,zoneinfo}
+mkdir -v  /usr/libexec
+mkdir -pv /usr/{,local/}share/man/man{1..8}
+
+case $(uname -m) in
+ x86_64) mkdir -v /lib64 ;;
+esac
+
+mkdir -v /var/{log,mail,spool}
+ln -sv /run /var/run
+ln -sv /run/lock /var/lock
+mkdir -pv /var/{opt,cache,lib/{color,misc,locate},local}
+
+ln -sv /tools/bin/{bash,cat,chmod,dd,echo,ln,mkdir,pwd,rm,stty,touch} /bin
+ln -sv /tools/bin/{env,install,perl,printf}         /usr/bin
+ln -sv /tools/lib/libgcc_s.so{,.1}                  /usr/lib
+ln -sv /tools/lib/libstdc++.{a,so{,.6}}             /usr/lib
+
+install -vdm755 /usr/lib/pkgconfig
+
+ln -sv bash /bin/sh
+ln -sv /proc/self/mounts /etc/mtab
+
+cat > /etc/passwd << "EOF"
+root:x:0:0:root:/root:/bin/bash
+bin:x:1:1:bin:/dev/null:/bin/false
+daemon:x:6:6:Daemon User:/dev/null:/bin/false
+messagebus:x:18:18:D-Bus Message Daemon User:/var/run/dbus:/bin/false
+nobody:x:99:99:Unprivileged User:/dev/null:/bin/false
+EOF
+
+cat > /etc/group << "EOF"
+root:x:0:
+bin:x:1:daemon
+sys:x:2:
+kmem:x:3:
+tape:x:4:
+tty:x:5:
+daemon:x:6:
+floppy:x:7:
+disk:x:8:
+lp:x:9:
+dialout:x:10:
+audio:x:11:
+video:x:12:
+utmp:x:13:
+usb:x:14:
+cdrom:x:15:
+adm:x:16:
+messagebus:x:18:
+input:x:24:
+mail:x:34:
+kvm:x:61:
+wheel:x:97:
+nogroup:x:99:
+users:x:999:
+EOF
+
+touch /var/log/{btmp,lastlog,wtmp}
+chgrp -v utmp /var/log/lastlog
+chmod -v 664  /var/log/lastlog
+chmod -v 600  /var/log/btmp
+
+cd /sources
+
+
+# install pkgs
+
+tar -xvf linux-4.20.12.tar.xz
+cd linux-4.20.12
+make INSTALL_HDR_PATH=dest headers_install
+find dest/include \( -name .install -o -name ..install.cmd \) -delete
+cp -rv dest/include/* /usr/include
+cd ..
+rm -Rf linux-4.20.12
+
+tar -xvf man-pages-4.16.tar.xz
+cd man-pages-4.16
+make install
+cd ..
+rm -Rf man-pages-4.16
+
+
+tar -xvf glibc-2.29.tar.xz
+cd glibc-2.29
+patch -Np1 -i ../glibc-2.29-fhs-1.patch
+ln -sfv /tools/lib/gcc /usr/lib
+
+case $(uname -m) in
+    i?86)    GCC_INCDIR=/usr/lib/gcc/$(uname -m)-pc-linux-gnu/8.2.0/include
+            ln -sfv ld-linux.so.2 /lib/ld-lsb.so.3
+    ;;
+    x86_64) GCC_INCDIR=/usr/lib/gcc/x86_64-pc-linux-gnu/8.2.0/include
+            ln -sfv ../lib/ld-linux-x86-64.so.2 /lib64
+            ln -sfv ../lib/ld-linux-x86-64.so.2 /lib64/ld-lsb-x86-64.so.3
+    ;;
+esac
+
+rm -f /usr/include/limits.h
+mkdir -v build
+cd       build
+CC="gcc -isystem $GCC_INCDIR -isystem /usr/include" \
+../configure --prefix=/usr                          \
+             --disable-werror                       \
+             --enable-kernel=3.2                    \
+             --enable-stack-protector=strong        \
+             libc_cv_slibdir=/lib
+unset GCC_INCDIR
+make
+case $(uname -m) in
+  i?86)   ln -sfnv $PWD/elf/ld-linux.so.2        /lib ;;
+  x86_64) ln -sfnv $PWD/elf/ld-linux-x86-64.so.2 /lib ;;
+esac
+make check
+touch /etc/ld.so.conf
+sed '/test-installation/s@$(PERL)@echo not running@' -i ../Makefile
+make install
+cp -v ../nscd/nscd.conf /etc/nscd.conf
+mkdir -pv /var/cache/nscd
+mkdir -pv /usr/lib/locale
+localedef -i POSIX -f UTF-8 C.UTF-8 2> /dev/null || true
+localedef pt_BR.UTF-8 -i pt_BR -f UTF-8
+localedef -i cs_CZ -f UTF-8 cs_CZ.UTF-8
+localedef -i de_DE -f ISO-8859-1 de_DE
+localedef -i de_DE@euro -f ISO-8859-15 de_DE@euro
+localedef -i de_DE -f UTF-8 de_DE.UTF-8
+localedef -i el_GR -f ISO-8859-7 el_GR
+localedef -i en_GB -f UTF-8 en_GB.UTF-8
+localedef -i en_HK -f ISO-8859-1 en_HK
+localedef -i en_PH -f ISO-8859-1 en_PH
+localedef -i en_US -f ISO-8859-1 en_US
+localedef -i en_US -f UTF-8 en_US.UTF-8
+localedef -i es_MX -f ISO-8859-1 es_MX
+localedef -i fa_IR -f UTF-8 fa_IR
+localedef -i fr_FR -f ISO-8859-1 fr_FR
+localedef -i fr_FR@euro -f ISO-8859-15 fr_FR@euro
+localedef -i fr_FR -f UTF-8 fr_FR.UTF-8
+localedef -i it_IT -f ISO-8859-1 it_IT
+localedef -i it_IT -f UTF-8 it_IT.UTF-8
+localedef -i ja_JP -f EUC-JP ja_JP
+localedef -i ja_JP -f SHIFT_JIS ja_JP.SIJS 2> /dev/null || true
+localedef -i ja_JP -f UTF-8 ja_JP.UTF-8
+localedef -i ru_RU -f KOI8-R ru_RU.KOI8-R
+localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
+localedef -i tr_TR -f UTF-8 tr_TR.UTF-8
+localedef -i zh_CN -f GB18030 zh_CN.GB18030
+localedef -i zh_HK -f BIG5-HKSCS zh_HK.BIG5-HKSCS
+
+cat > /etc/nsswitch.conf << "EOF"
+# Begin /etc/nsswitch.conf
+
+passwd: files
+group: files
+shadow: files
+
+hosts: files dns
+networks: files
+
+protocols: files
+services: files
+ethers: files
+rpc: files
+
+# End /etc/nsswitch.conf
+EOF
+
+tar -xf ../../tzdata2018i.tar.gz
+
+ZONEINFO=/usr/share/zoneinfo
+mkdir -pv $ZONEINFO/{posix,right}
+
+for tz in etcetera southamerica northamerica europe africa antarctica  \
+          asia australasia backward pacificnew systemv; do
+    zic -L /dev/null   -d $ZONEINFO       ${tz}
+    zic -L /dev/null   -d $ZONEINFO/posix ${tz}
+    zic -L leapseconds -d $ZONEINFO/right ${tz}
+done
+
+cp -v zone.tab zone1970.tab iso3166.tab $ZONEINFO
+zic -d $ZONEINFO -p America/New_York
+unset ZONEINFO
+
+cp -v /usr/share/zoneinfo/America/Fortaleza /etc/localtime
+
+cat > /etc/ld.so.conf << "EOF"
+# Begin /etc/ld.so.conf
+/usr/local/lib
+/opt/lib
+
+EOF
+
+cat >> /etc/ld.so.conf << "EOF"
+# Add an include directory
+include /etc/ld.so.conf.d/*.conf
+
+EOF
+mkdir -pv /etc/ld.so.conf.d
+
+mv -v /tools/bin/{ld,ld-old}
+mv -v /tools/$(uname -m)-pc-linux-gnu/bin/{ld,ld-old}
+mv -v /tools/bin/{ld-new,ld}
+ln -sv /tools/bin/ld /tools/$(uname -m)-pc-linux-gnu/bin/ld
+
+grep -o '/usr/lib.*/crt[1in].*succeeded' dummy.log
+
+cd ../..
+rm -Rf glibc-2.29
+
+tar -xvf zlib-1.2.11.tar.xz
+cd zlib-1.2.11
+./configure --prefix=/usr
+make
+make check
+make install
+cd ..
+rm -Rf zlib-1.2.11
+
+
+tar -xvf file-5.36.tar.gz
+cd file-5.36
+make
+make check
+make install
+cd ..
+rm -Rf file-5.36
+
+tar -xvf m4-1.4.18.tar.xz
+cd m4-1.4.18
+sed -i 's/IO_ftrylockfile/IO_EOF_SEEN/' lib/*.c
+echo "#define _IO_IN_BACKUP 0x100" >> lib/stdio-impl.h
+./configure --prefix=/usr
+make
+make check
+make install 
+cd ..
+rm -Rf m4-1.4.18
+
+tar -xvf bc-1.07.1.tar.gz
+cd bc-1.07.1
+cat > bc/fix-libmath_h << "EOF"
+#! /bin/bash
+sed -e '1   s/^/{"/' \
+    -e     's/$/",/' \
+    -e '2,$ s/^/"/'  \
+    -e   '$ d'       \
+    -i libmath.h
+
+sed -e '$ s/$/0}/' \
+    -i libmath.h
+EOF
+ln -sv /tools/lib/libncursesw.so.6 /usr/lib/libncursesw.so.6
+ln -sfv libncursesw.so.6 /usr/lib/libncurses.so
+./configure --prefix=/usr           \
+            --with-readline         \
+            --mandir=/usr/share/man \
+            --infodir=/usr/share/info
+
+echo "quit" | ./bc/bc -l Test/checklib.b
+cd ..
+rm -Rf bc-1.07.1
+
+tar -xvf binutils-2.32.tar.xz
+cd binutils-2.32
+expect -c "spawn ls"
+mkdir -v build
+cd       build
+../configure --prefix=/usr       \
+             --enable-gold       \
+             --enable-ld=default \
+             --enable-plugins    \
+             --enable-shared     \
+             --disable-werror    \
+             --enable-64-bit-bfd \
+             --with-system-zlib
+
+
+make tooldir=/usr
+make -k check
+make tooldir=/usr install
+cd ../..
+rm -Rf binutils-2.32
+
+
+tar -xvf gmp-6.1.2.tar.xz
+cd gmp-6.1.2
+# check generic cpu
+./configure --prefix=/usr    \
+            --enable-cxx     \
+            --disable-static \
+            --docdir=/usr/share/doc/gmp-6.1.2
+
+make
+make html
+make check 2>&1 | tee gmp-check-log
+awk '/# PASS:/{total+=$3} ; END{print total}' gmp-check-log
+make install
+make install-html
+cd ..
+rm -Rf gmp-6.1.2
+
+tar -xvf mpfr-4.0.2.tar.xz 
+cd mpfr-4.0.2
+make
+make html
+make check
+make install
+make install-html
+cd ..
+rm -Rf mpfr-4.0.2
+
+tar -xvf mpc-1.1.0.tar.gz
+cd mpc-1.1.0
+./configure --prefix=/usr    \
+            --disable-static \
+            --docdir=/usr/share/doc/mpc-1.1.0
+make
+make html
+make check
+make install
+make install-html
+cd ..
+rm -Rf mpc-1.1.0
+
+tar -xvf shadow-4.6.tar.xz
+cd shadow-4.6
+sed -i 's/groups$(EXEEXT) //' src/Makefile.in
+find man -name Makefile.in -exec sed -i 's/groups\.1 / /'   {} \;
+find man -name Makefile.in -exec sed -i 's/getspnam\.3 / /' {} \;
+find man -name Makefile.in -exec sed -i 's/passwd\.5 / /'   {} \;
+sed -i -e 's@#ENCRYPT_METHOD DES@ENCRYPT_METHOD SHA512@' \
+       -e 's@/var/spool/mail@/var/mail@' etc/login.defs
+sed -i 's/1000/999/' etc/useradd
+
+./configure --sysconfdir=/etc --with-group-name-max-length=32
+make 
+make install
+mv -v /usr/bin/passwd /bin
+pwconv
+grpconv
+passwd root
+cd ..
+rm -Rf shadow-4.6
+
+tar -xvf gcc-8.2.0.tar.xz
+cd gcc-8.2.0
+case $(uname -m) in
+  x86_64)
+    sed -e '/m64=/s/lib64/lib/' \
+        -i.orig gcc/config/i386/t-linux64
+  ;;
+esac
+rm -f /usr/lib/gcc
+mkdir -v build
+cd       build
+SED=sed                               \
+../configure --prefix=/usr            \
+             --enable-languages=c,c++ \
+             --disable-multilib       \
+             --disable-bootstrap      \
+             --disable-libmpx         \
+             --with-system-zlib
+make
