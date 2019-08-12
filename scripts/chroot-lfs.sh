@@ -1,7 +1,11 @@
 #!/bin/bash
 LFS=/mnt/lfs
+sudo mount -v -t ext4 /dev/sda3 $LFS
 
-chroot "$LFS" /tools/bin/env -i \
+# mount dev's
+sudo ./mount-lfs.sh
+
+sudo chroot "$LFS" /tools/bin/env -i \
     HOME=/root                  \
     TERM="$TERM"                \
     PS1='(lfs chroot) \u:\w\$ ' \
