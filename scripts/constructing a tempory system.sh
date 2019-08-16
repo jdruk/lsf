@@ -781,17 +781,37 @@ cd zlib-1.2.11
 make
 make check
 make install
+mv -v /usr/lib/libz.so.* /lib
+ln -sfv ../../lib/$(readlink /usr/lib/libz.so) /usr/lib/libz.so
 cd ..
 rm -Rf zlib-1.2.11
 
 
 tar -xvf file-5.36.tar.gz
 cd file-5.36
+./configure --prefix=/usr
 make
 make check
 make install
 cd ..
 rm -Rf file-5.36
+
+tar -xvf readline-8.0.tar.gz
+cd readline-8.0
+sed -i '/MV.*old/d' Makefile.in
+sed -i '/{OLDSUFF}/c:' support/shlib-install
+./configure --prefix=/usr    \
+            --disable-static \
+            --docdir=/usr/share/doc/readline-8.0
+make SHLIB_LIBS="-L/tools/lib -lncursesw"
+make SHLIB_LIBS="-L/tools/lib -lncursesw" install
+mv -v /usr/lib/lib{readline,history}.so.* /lib
+chmod -v u+w /lib/lib{readline,history}.so.*
+ln -sfv ../../lib/$(readlink /usr/lib/libreadline.so) /usr/lib/libreadline.so
+ln -sfv ../../lib/$(readlink /usr/lib/libhistory.so ) /usr/lib/libhistory.so
+install -v -m644 doc/*.{ps,pdf,html,dvi} /usr/share/doc/readline-8.0
+cd ..
+rm -Rf cd readline-8.0
 
 tar -xvf m4-1.4.18.tar.xz
 cd m4-1.4.18
@@ -823,8 +843,9 @@ ln -sfv libncursesw.so.6 /usr/lib/libncurses.so
             --with-readline         \
             --mandir=/usr/share/man \
             --infodir=/usr/share/info
-
+make
 echo "quit" | ./bc/bc -l Test/checklib.b
+make install 
 cd ..
 rm -Rf bc-1.07.1
 
@@ -869,6 +890,10 @@ rm -Rf gmp-6.1.2
 
 tar -xvf mpfr-4.0.2.tar.xz 
 cd mpfr-4.0.2
+./configure --prefix=/usr        \
+            --disable-static     \
+            --enable-thread-safe \
+            --docdir=/usr/share/doc/mpfr-4.0.2
 make
 make html
 make check
