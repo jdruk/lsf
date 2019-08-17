@@ -983,6 +983,7 @@ ln -sv ../../lib/libbz2.so.1.0 /usr/lib/libbz2.so
 rm -v /usr/bin/{bunzip2,bzcat,bzip2}
 ln -sv bzip2 /bin/bunzip2
 ln -sv bzip2 /bin/bzcat
+cd ..
 rm -Rf bzip2-1.0.6
 
 tar -xvf pkg-config-0.29.2.tar.gz
@@ -994,7 +995,7 @@ cd pkg-config-0.29.2
 make
 make check
 make install
-
+cd ..
 rm -Rf pkg-config-0.29.2
 
 tar -xvf ncurses-6.1.tar.gz
@@ -1080,6 +1081,7 @@ rm -Rf sed-4.7
 
 tar -xvf psmisc-23.2.tar.xz
 cd psmisc-23.2
+./configure --prefix=/usr
 make 
 make install
 mv -v /usr/bin/fuser   /bin
@@ -1164,6 +1166,7 @@ cd gperf-3.1
 make
 make -j1 check
 make install
+cd ..
 rm -Rf gperf-3.1
 
 tar -xvf expat-2.2.6.tar.bz2
@@ -1484,6 +1487,7 @@ make install
 cd ..
 rm -Rf groff-1.22.4
 
+# CHECK
 tar -xvf grub-2.02.tar.xz
 cd grub-2.02
 ./configure --prefix=/usr          \
