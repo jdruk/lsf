@@ -1,0 +1,25 @@
+Submitted By:            Douglas R. Reno <renodr at linuxfromscratch dot org>
+Date:                    2019-02-22
+Initial Package Version: 7.9p1
+Upstream Status:         Applied
+Origin:                  Upstream
+Description:             Fixes a security vulnerability that allows for access
+                         restriction bypass using SCP.
+
+diff -Naurp openssh-7.9p1.orig/scp.c openssh-7.9p1/scp.c
+--- openssh-7.9p1.orig/scp.c	2018-10-16 19:01:20.000000000 -0500
++++ openssh-7.9p1/scp.c	2019-02-22 07:53:21.816085298 -0600
+@@ -1106,9 +1106,10 @@ sink(int argc, char **argv)
+ 			SCREWUP("size out of range");
+ 		size = (off_t)ull;
+ 
+-		if ((strchr(cp, '/') != NULL) || (strcmp(cp, "..") == 0)) {
+-			run_err("error: unexpected filename: %s", cp);
+-			exit(1);
++		if (*cp == '\0' || strchr(cp, '/') != NULL ||
++         strcmp(cp, ".") == 0 || strcmp(cp, "..") == 0) {
++			   run_err("error: unexpected filename: %s", cp);
++			   exit(1);
+ 		}
+ 		if (targisdir) {
+ 			static char *namebuf;
